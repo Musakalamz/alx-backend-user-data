@@ -1,119 +1,105 @@
 #!/usr/bin/env python3
-""" Module docstring """
-# imports
-import logging
-import mysql.connector
-from os import getenv
-import re
+"""
+Definition of filter_datum function that returns an obfuscated log message
+"""
 from typing import List
+import re
+import logging
+import os
+import mysql.connector
 
-PII_FIELDS = ("email", "phone", "ssn", "ip", "password")
+
+PII_FIELDS = ('name', 'email', 'phone', 'ssn', 'password')
 
 
-def filter_datum(fields: List[str], redaction: str, message: str, separator: str) -> str:
-    """ Returns the log message obfuscated """
+def filter_datum(fields: List[str], redaction: str,
+                 message: str, separator: str) -> str:
+    """
+    Return an obfuscated log message
+    Args:
+        fields (list): list of strings indicating fields to obfuscate
+        redaction (str): what the field will be obfuscated to
+        message (str): the log line to obfuscate
+        separator (str): the character separating the fields
+    """
     for field in fields:
-        message = re.sub(
-            f"{field}=(.+?){separator}",
-            f"{field}={redaction}{separator}",
-            message
-        )
+        message = re.sub(field+'=.*?'+separator,
+                         field+'='+redaction+separator, message)
     return message
 
 
 class RedactingFormatter(logging.Formatter):
-    """ Redacting Formatter Class """
+    """ Redacting Formatter class
+        """
 
     REDACTION = "***"
     FORMAT = "[HOLBERTON] %(name)s %(levelname)s %(asctime)-15s: %(message)s"
     SEPARATOR = ";"
 
     def __init__(self, fields: List[str]):
-        """ Constructor """
         super(RedactingFormatter, self).__init__(self.FORMAT)
-        self.__fields = [i for i in fields]
+        self.fields = fields
 
     def format(self, record: logging.LogRecord) -> str:
-        """ filter values in incoming log records """
-        return filter_datum(
-            self.__fields,
-            self.REDACTION,
-            super().format(record),
-            self.SEPARATOR
-        )
+        """
+        redact the message of LogRecord instance
+        Args:
+        record (logging.LogRecord): LogRecord instance containing message
+        Return:
+            formatted string
+        """
+        message = super(RedactingFormatter, self).format(record)
+        redacted = filter_datum(self.fields, self.REDACTION,
+                                message, self.SEPARATOR)
+        return redacted
 
 
 def get_logger() -> logging.Logger:
-    """ Creates log for user data """
-    user_data = logging.getLogger('user_data')
-    user_data.setLevel(logging.INFO)
-    user_data.propagate = False
+    """
+    Return a logging.Logger object
+    """
+    logger = logging.getLogger("user_data")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
     handler = logging.StreamHandler()
-    handler.setFormatter(RedactingFormatter(fields=PII_FIELDS))
-    user_data.addHandler(handler)
-    return user_data
+
+    formatter = RedactingFormatter(PII_FIELDS)
+
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    return logger
 
 
 def get_db() -> mysql.connector.connection.MySQLConnection:
-    """ Return a connection to a MySQL server """
-    # mysql_login = {
-    #     'user': getenv('HOLB_USERNAME'),
-    #     'password': getenv('HOLB_PASSWORD'),
-    #     'host': getenv('HOLB_DB_HOST'),
-    #     'database': getenv('HOLB_DB_NAME')
-    # }
-    mysql_login = {
-        'user': getenv('PERSONAL_DATA_DB_USERNAME'),
-        'password': getenv('PERSONAL_DATA_DB_PASSWORD'),
-        'host': getenv('PERSONAL_DATA_DB_HOST'),
-        'database': getenv('PERSONAL_DATA_DB_NAME')
-    }
-    connection = mysql.connector.connect(**mysql_login)
-
-    return connection
+    """
+    """
+    user = os.getenv('PERSONAL_DATA_DB_USERNAME') or "root"
+    passwd = os.getenv('PERSONAL_DATA_DB_PASSWORD') or ""
+    host = os.getenv('PERSONAL_DATA_DB_HOST') or "localhost"
+    db_name = os.getenv('PERSONAL_DATA_DB_NAME')
+    conn = mysql.connector.connect(user=user,
+                                   password=passwd,
+                                   host=host,
+                                   database=db_name)
+    return conn
 
 
 def main():
-    """ Executes Log of current database """
-    user_data = get_logger()
+    """
+    main entry point
+    """
     db = get_db()
+    logger = get_logger()
     cursor = db.cursor()
     cursor.execute("SELECT * FROM users;")
     fields = cursor.column_names
     for row in cursor:
-        msg = "; ".join([f"{fields[i]}={str(col)}" for i, col in enumerate(row)])
-        record = logging.LogRecord(user_data.name, logging.INFO, None, None, msg, None, None)
-        user_data.handle(record)
+        message = "".join("{}={}; ".format(k, v) for k, v in zip(fields, row))
+        logger.info(message.strip())
     cursor.close()
     db.close()
 
 
 if __name__ == "__main__":
-    # print("Task 0:\n")
-    # fields = ["password", "date_of_birth"]
-    # messages = ["name=egg;email=eggmin@eggsample.com;password=eggcellent;date_of_birth=12/12/1986;", "name=bob;email=bob@dylan.com;password=bobbycool;date_of_birth=03/04/1993;"]
-
-    # for message in messages:
-    #     print(filter_datum(fields, 'xxx', message, ';'))
-
-    # print("\nTask 1:\n")
-    # message = "name=Bob;email=bob@dylan.com;ssn=000-123-0000;password=bobby2019;"
-    # log_record = logging.LogRecord("my_logger", logging.INFO, None, None, message, None, None)
-    # formatter = RedactingFormatter(fields=("email", "ssn", "password"))
-    # print(formatter.format(log_record))
-
-    # print("\nTask 2:\n")
-    # print(get_logger.__annotations__.get('return'))
-    # print("PII_FIELDS: {}".format(len(PII_FIELDS)))
-
-    # print("\nTask 3\n")
-    # db = get_db()
-    # cursor = db.cursor()
-    # cursor.execute("SELECT COUNT(*) FROM users;")
-    # for row in cursor:
-    #     print(row[0])
-    # cursor.close()
-    # db.close()
-
-    # print("\nTask 4\n")
     main()
